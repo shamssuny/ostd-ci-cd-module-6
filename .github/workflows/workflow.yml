@@ -1,4 +1,4 @@
-name: Node CI Pipeline
+name: Node CI Pipeline v2
 
 on:
   push:

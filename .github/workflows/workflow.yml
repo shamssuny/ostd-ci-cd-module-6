@@ -1,4 +1,4 @@
-name: Node CI Pipeline v2
+name: Node CI CD (Self Hosted + Nginx)
 
 on:
   push:
@@ -12,11 +12,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
 
       - name: Install dependencies
         run: npm install
@@ -33,18 +28,70 @@ jobs:
           name: mocha-test-results
           path: test-results/results.json
 
+
   deploy:
     runs-on: self-hosted
-    needs: test   
+    needs: test
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Download test results artifact
         uses: actions/download-artifact@v4
         with:
           name: mocha-test-results
-          path: downloaded-results
+          path: test-results
 
       - name: Display test results
         run: |
-          echo "Mocha Test Results:"
-          cat downloaded-results/results.json
+          echo " Test Results:"
+          cat test-results/results.json
+
+      - name: Deploy application to EC2
+        run: |
+          APP_DIR=/var/www/node-express-app
+
+          echo "Deploying application..."
+
+          sudo mkdir -p $APP_DIR
+          sudo rsync -av --delete ./ $APP_DIR
+          sudo chown -R $USER:$USER $APP_DIR
+
+          cd $APP_DIR
+          npm install --production
+
+          pm2 restart node-app || pm2 start src/server.js --name node-app --env production
+
+          echo "Application deployed"
+
+      - name: Setup Nginx Reverse Proxy (3000 → 80)
+        run: |
+          echo "Configuring Nginx reverse proxy..."
+
+          sudo apt-get update
+          sudo apt-get install -y nginx
+
+          sudo tee /etc/nginx/sites-available/node-app << 'EOF'
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass http://127.0.0.1:3000;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host $host;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+          EOF
+
+          sudo ln -sf /etc/nginx/sites-available/node-app /etc/nginx/sites-enabled/node-app
+          sudo rm -f /etc/nginx/sites-enabled/default
+
+          sudo nginx -t
+          sudo systemctl restart nginx
+
+          echo "Nginx reverse proxy enabled (80 → 3000)"

@@ -89,7 +89,13 @@ jobs:
           cd $APP_DIR
           npm install --production
 
-          pm2 reload node-app || pm2 start src/server.js --name node-app
+          if pm2 describe node-app >/dev/null 2>&1; then
+            echo "♻️ Reloading existing app"
+            pm2 reload node-app
+          else
+            echo "🚀 Starting app for the first time"
+            pm2 start src/server.js --name node-app
+          fi
 
           pm2 save
 
